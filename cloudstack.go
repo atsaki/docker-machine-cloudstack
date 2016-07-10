@@ -612,7 +612,7 @@ func (d *Driver) setProject(project string) error {
 	cs := d.getClient()
 	p, _, err := cs.Project.GetProjectByName(d.Project)
 	if err != nil {
-		return fmt.Errorf("Invalid project id: %s", err)
+		return fmt.Errorf("Invalid project: %s", err)
 	}
 
 	d.ProjectID = p.Id
@@ -629,6 +629,9 @@ func (d *Driver) checkKeyPair() error {
 
 	p := cs.SSH.NewListSSHKeyPairsParams()
 	p.SetName(d.SSHKeyPair)
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	res, err := cs.SSH.ListSSHKeyPairs(p)
 	if err != nil {
 		return err
@@ -647,6 +650,9 @@ func (d *Driver) checkInstance() error {
 	p := cs.VirtualMachine.NewListVirtualMachinesParams()
 	p.SetName(d.MachineName)
 	p.SetZoneid(d.ZoneID)
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	res, err := cs.VirtualMachine.ListVirtualMachines(p)
 	if err != nil {
 		return err
@@ -672,6 +678,9 @@ func (d *Driver) createKeyPair() error {
 	log.Infof("Registering SSH key pair...")
 
 	p := cs.SSH.NewRegisterSSHKeyPairParams(d.SSHKeyPair, string(publicKey))
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SSH.RegisterSSHKeyPair(p); err != nil {
 		return err
 	}
@@ -685,6 +694,9 @@ func (d *Driver) deleteKeyPair() error {
 	log.Infof("Deleting SSH key pair...")
 
 	p := cs.SSH.NewDeleteSSHKeyPairParams(d.SSHKeyPair)
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SSH.DeleteSSHKeyPair(p); err != nil {
 		return err
 	}
@@ -698,6 +710,9 @@ func (d *Driver) associatePublicIP() error {
 	p.SetZoneid(d.ZoneID)
 	if d.NetworkID != "" {
 		p.SetNetworkid(d.NetworkID)
+	}
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
 	}
 	ip, err := cs.Address.AssociateIpAddress(p)
 	if err != nil {
@@ -835,6 +850,9 @@ func (d *Driver) createSecurityGroup() error {
 	cs := d.getClient()
 
 	p1 := cs.SecurityGroup.NewCreateSecurityGroupParams(d.MachineName)
+	if d.ProjectID != "" {
+		p1.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SecurityGroup.CreateSecurityGroup(p1); err != nil {
 		return err
 	}
@@ -846,6 +864,9 @@ func (d *Driver) createSecurityGroup() error {
 
 	p2.SetStartport(22)
 	p2.SetEndport(22)
+	if d.ProjectID != "" {
+		p2.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SecurityGroup.AuthorizeSecurityGroupIngress(p2); err != nil {
 		return err
 	}
@@ -872,6 +893,9 @@ func (d *Driver) deleteSecurityGroup() error {
 
 	p := cs.SecurityGroup.NewDeleteSecurityGroupParams()
 	p.SetName(d.MachineName)
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SecurityGroup.DeleteSecurityGroup(p); err != nil {
 		return err
 	}
