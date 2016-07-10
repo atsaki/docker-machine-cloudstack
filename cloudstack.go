@@ -54,6 +54,8 @@ type Driver struct {
 	Zone                 string
 	ZoneID               string
 	NetworkType          string
+	Project              string
+	ProjectID            string
 }
 
 // GetCreateFlags registers the flags this driver adds to
@@ -127,11 +129,14 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Name:  "cloudstack-zone",
 			Usage: "CloudStack zone",
 		},
+		mcnflag.StringFlag{
+			Name:  "cloudstack-project",
+			Usage: "CloudStack project",
+		},
 	}
 }
 
 func NewDriver(hostName, storePath string) drivers.Driver {
-
 	driver := &Driver{
 		BaseDriver: &drivers.BaseDriver{
 			MachineName: hostName,
@@ -185,6 +190,9 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 		return err
 	}
 	if err := d.setPublicIP(flags.String("cloudstack-public-ip")); err != nil {
+		return err
+	}
+	if err := d.setProject(flags.String("cloudstack-project")); err != nil {
 		return err
 	}
 
@@ -312,6 +320,10 @@ func (d *Driver) Create() error {
 
 	if d.NetworkID != "" {
 		p.SetNetworkids([]string{d.NetworkID})
+	}
+
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
 	}
 
 	if d.NetworkType == "Basic" {
@@ -586,6 +598,26 @@ func (d *Driver) setPublicIP(publicip string) error {
 	d.PublicIPID = ips.PublicIpAddresses[0].Id
 
 	log.Debugf("public ip id: %q", d.PublicIPID)
+
+	return nil
+}
+
+func (d *Driver) setProject(project string) error {
+	d.Project = project
+
+	if d.Project == "" {
+		return nil
+	}
+
+	cs := d.getClient()
+	p, _, err := cs.Project.GetProjectByName(d.Project)
+	if err != nil {
+		return fmt.Errorf("Invalid project id: %s", err)
+	}
+
+	d.ProjectID = p.Id
+
+	log.Debugf("project id: %s", d.ProjectID)
 
 	return nil
 }
