@@ -57,6 +57,8 @@ type Driver struct {
 	NetworkType          string
 	UserDataFile         string
 	UserData             string
+	Project              string
+	ProjectID            string
 }
 
 // GetCreateFlags registers the flags this driver adds to
@@ -134,11 +136,14 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Name:  "cloudstack-userdata-file",
 			Usage: "CloudStack Userdata file",
 		},
+		mcnflag.StringFlag{
+			Name:  "cloudstack-project",
+			Usage: "CloudStack project",
+		},
 	}
 }
 
 func NewDriver(hostName, storePath string) drivers.Driver {
-
 	driver := &Driver{
 		BaseDriver: &drivers.BaseDriver{
 			MachineName: hostName,
@@ -195,6 +200,9 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 		return err
 	}
 	if err := d.setUserData(flags.String("cloudstack-userdata-file")); err != nil {
+		return err
+	}
+	if err := d.setProject(flags.String("cloudstack-project")); err != nil {
 		return err
 	}
 
@@ -326,6 +334,10 @@ func (d *Driver) Create() error {
 
 	if d.NetworkID != "" {
 		p.SetNetworkids([]string{d.NetworkID})
+	}
+
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
 	}
 
 	if d.NetworkType == "Basic" {
@@ -621,6 +633,26 @@ func (d *Driver) setUserData(userDataFile string) error {
 	return nil
 }
 
+func (d *Driver) setProject(project string) error {
+	d.Project = project
+
+	if d.Project == "" {
+		return nil
+	}
+
+	cs := d.getClient()
+	p, _, err := cs.Project.GetProjectByName(d.Project)
+	if err != nil {
+		return fmt.Errorf("Invalid project: %s", err)
+	}
+
+	d.ProjectID = p.Id
+
+	log.Debugf("project id: %s", d.ProjectID)
+
+	return nil
+}
+
 func (d *Driver) checkKeyPair() error {
 	cs := d.getClient()
 
@@ -628,6 +660,9 @@ func (d *Driver) checkKeyPair() error {
 
 	p := cs.SSH.NewListSSHKeyPairsParams()
 	p.SetName(d.SSHKeyPair)
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	res, err := cs.SSH.ListSSHKeyPairs(p)
 	if err != nil {
 		return err
@@ -646,6 +681,9 @@ func (d *Driver) checkInstance() error {
 	p := cs.VirtualMachine.NewListVirtualMachinesParams()
 	p.SetName(d.MachineName)
 	p.SetZoneid(d.ZoneID)
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	res, err := cs.VirtualMachine.ListVirtualMachines(p)
 	if err != nil {
 		return err
@@ -671,6 +709,9 @@ func (d *Driver) createKeyPair() error {
 	log.Infof("Registering SSH key pair...")
 
 	p := cs.SSH.NewRegisterSSHKeyPairParams(d.SSHKeyPair, string(publicKey))
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SSH.RegisterSSHKeyPair(p); err != nil {
 		return err
 	}
@@ -684,6 +725,9 @@ func (d *Driver) deleteKeyPair() error {
 	log.Infof("Deleting SSH key pair...")
 
 	p := cs.SSH.NewDeleteSSHKeyPairParams(d.SSHKeyPair)
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SSH.DeleteSSHKeyPair(p); err != nil {
 		return err
 	}
@@ -697,6 +741,9 @@ func (d *Driver) associatePublicIP() error {
 	p.SetZoneid(d.ZoneID)
 	if d.NetworkID != "" {
 		p.SetNetworkid(d.NetworkID)
+	}
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
 	}
 	ip, err := cs.Address.AssociateIpAddress(p)
 	if err != nil {
@@ -834,6 +881,9 @@ func (d *Driver) createSecurityGroup() error {
 	cs := d.getClient()
 
 	p1 := cs.SecurityGroup.NewCreateSecurityGroupParams(d.MachineName)
+	if d.ProjectID != "" {
+		p1.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SecurityGroup.CreateSecurityGroup(p1); err != nil {
 		return err
 	}
@@ -845,6 +895,9 @@ func (d *Driver) createSecurityGroup() error {
 
 	p2.SetStartport(22)
 	p2.SetEndport(22)
+	if d.ProjectID != "" {
+		p2.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SecurityGroup.AuthorizeSecurityGroupIngress(p2); err != nil {
 		return err
 	}
@@ -871,6 +924,9 @@ func (d *Driver) deleteSecurityGroup() error {
 
 	p := cs.SecurityGroup.NewDeleteSecurityGroupParams()
 	p.SetName(d.MachineName)
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SecurityGroup.DeleteSecurityGroup(p); err != nil {
 		return err
 	}
