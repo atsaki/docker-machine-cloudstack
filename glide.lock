@@ -1,5 +1,5 @@
-hash: 58cc43e0885a5a1a288059c8fc1ba19e11ca1172ba5fe08a34061e7886bcc78a
-updated: 2016-07-06T11:25:33.550149238+09:00
+hash: 19f3000f9ce3363942a44d7b2e577ce4c96f5f61add38f69e9831bd3892c92c8
+updated: 2016-11-08T10:54:52.057507593-02:00
 imports:
 - name: github.com/Azure/go-ansiterm
   version: 70b2c90b260171e829f1ebd7c17f600c11858dbe
@@ -11,26 +11,26 @@ imports:
   version: a650a404fc3e006fea17b12615266168db79c776
   subpackages:
   - libmachine/drivers
-  - libmachine/log
-  - libmachine/mcnflag
-  - libmachine/ssh
-  - libmachine/state
   - libmachine/drivers/plugin
-  - libmachine/mcnutils
   - libmachine/drivers/plugin/localbinary
   - libmachine/drivers/rpc
+  - libmachine/log
+  - libmachine/mcnflag
+  - libmachine/mcnutils
+  - libmachine/ssh
+  - libmachine/state
   - libmachine/version
   - version
 - name: github.com/Sirupsen/logrus
   version: cdaedc68f2894175ac2b3221869685602c759e71
 - name: github.com/xanzy/go-cloudstack
-  version: 104168fa792713f5e04b76e2862779dc2ad85bcc
+  version: deca6e17c056012b540aa2d2eae3ea1e63203b85
   subpackages:
   - cloudstack
 - name: golang.org/x/crypto
   version: beef0f4390813b96e8e68fd78570396d0f4751fc
   subpackages:
+  - curve25519
   - ssh
   - ssh/terminal
-  - curve25519
-devImports: []
+testImports: []

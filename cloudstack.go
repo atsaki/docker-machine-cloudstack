@@ -57,6 +57,9 @@ type Driver struct {
 	NetworkType          string
 	UserDataFile         string
 	UserData             string
+	Project              string
+	ProjectID            string
+	Tags                 []string
 }
 
 // GetCreateFlags registers the flags this driver adds to
@@ -119,26 +122,53 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Usage: "CloudStack template",
 		},
 		mcnflag.StringFlag{
+			Name:  "cloudstack-template-id",
+			Usage: "Cloudstack template id",
+		},
+		mcnflag.StringFlag{
 			Name:  "cloudstack-service-offering",
 			Usage: "CloudStack service offering",
+		},
+		mcnflag.StringFlag{
+			Name:  "cloudstack-service-offering-id",
+			Usage: "CloudStack service offering id",
 		},
 		mcnflag.StringFlag{
 			Name:  "cloudstack-network",
 			Usage: "CloudStack network",
 		},
 		mcnflag.StringFlag{
+			Name:  "cloudstack-network-id",
+			Usage: "CloudStack network id",
+		},
+		mcnflag.StringFlag{
 			Name:  "cloudstack-zone",
 			Usage: "CloudStack zone",
+		},
+		mcnflag.StringFlag{
+			Name:  "cloudstack-zone-id",
+			Usage: "CloudStack zone id",
 		},
 		mcnflag.StringFlag{
 			Name:  "cloudstack-userdata-file",
 			Usage: "CloudStack Userdata file",
 		},
+		mcnflag.StringFlag{
+			Name:  "cloudstack-project",
+			Usage: "CloudStack project",
+		},
+		mcnflag.StringFlag{
+			Name:  "cloudstack-project-id",
+			Usage: "CloudStack project id",
+		},
+		mcnflag.StringSliceFlag{
+			Name:  "cloudstack-resource-tag",
+			Usage: "key:value resource tags to be created",
+		},
 	}
 }
 
 func NewDriver(hostName, storePath string) drivers.Driver {
-
 	driver := &Driver{
 		BaseDriver: &drivers.BaseDriver{
 			MachineName: hostName,
@@ -178,17 +208,21 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.SSHUser = flags.String("cloudstack-ssh-user")
 	d.CIDRList = flags.StringSlice("cloudstack-cidr")
 	d.Expunge = flags.Bool("cloudstack-expunge")
+	d.Tags = flags.StringSlice("cloudstack-resource-tag")
 
-	if err := d.setZone(flags.String("cloudstack-zone")); err != nil {
+	if err := d.setProject(flags.String("cloudstack-project"), flags.String("cloudstack-project-id")); err != nil {
 		return err
 	}
-	if err := d.setTemplate(flags.String("cloudstack-template")); err != nil {
+	if err := d.setZone(flags.String("cloudstack-zone"), flags.String("cloudstack-zone-id")); err != nil {
 		return err
 	}
-	if err := d.setServiceOffering(flags.String("cloudstack-service-offering")); err != nil {
+	if err := d.setTemplate(flags.String("cloudstack-template"), flags.String("cloudstack-template-id")); err != nil {
 		return err
 	}
-	if err := d.setNetwork(flags.String("cloudstack-network")); err != nil {
+	if err := d.setServiceOffering(flags.String("cloudstack-service-offering"), flags.String("cloudstack-service-offering-id")); err != nil {
+		return err
+	}
+	if err := d.setNetwork(flags.String("cloudstack-network"), flags.String("cloudstack-network-id")); err != nil {
 		return err
 	}
 	if err := d.setPublicIP(flags.String("cloudstack-public-ip")); err != nil {
@@ -257,7 +291,7 @@ func (d *Driver) GetIP() (string, error) {
 // GetState returns the state that the host is in (running, stopped, etc)
 func (d *Driver) GetState() (state.State, error) {
 	cs := d.getClient()
-	vm, count, err := cs.VirtualMachine.GetVirtualMachineByID(d.Id)
+	vm, count, err := cs.VirtualMachine.GetVirtualMachineByID(d.Id, d.setParams)
 	if err != nil {
 		return state.Error, err
 	}
@@ -328,6 +362,10 @@ func (d *Driver) Create() error {
 		p.SetNetworkids([]string{d.NetworkID})
 	}
 
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
+
 	if d.NetworkType == "Basic" {
 		if err := d.createSecurityGroup(); err != nil {
 			return err
@@ -368,6 +406,12 @@ func (d *Driver) Create() error {
 			if err := d.enableStaticNat(); err != nil {
 				return err
 			}
+		}
+	}
+
+	if len(d.Tags) > 0 {
+		if err := d.createTags(); err != nil {
+			return err
 		}
 	}
 
@@ -487,21 +531,29 @@ func (d *Driver) getClient() *cloudstack.CloudStackClient {
 	return cs
 }
 
-func (d *Driver) setZone(zone string) error {
+func (d *Driver) setZone(zone string, zoneID string) error {
 	d.Zone = zone
-	d.ZoneID = ""
+	d.ZoneID = zoneID
 	d.NetworkType = ""
 
-	if d.Zone == "" {
+	if d.Zone == "" && d.ZoneID == "" {
 		return nil
 	}
 
 	cs := d.getClient()
-	z, _, err := cs.Zone.GetZoneByName(d.Zone)
+
+	var z *cloudstack.Zone
+	var err error
+	if d.ZoneID != "" {
+		z, _, err = cs.Zone.GetZoneByID(d.ZoneID, d.setParams)
+	} else {
+		z, _, err = cs.Zone.GetZoneByName(d.Zone, d.setParams)
+	}
 	if err != nil {
 		return fmt.Errorf("Unable to get zone: %v", err)
 	}
 
+	d.Zone = z.Name
 	d.ZoneID = z.Id
 	d.NetworkType = z.Networktype
 
@@ -512,68 +564,93 @@ func (d *Driver) setZone(zone string) error {
 	return nil
 }
 
-func (d *Driver) setTemplate(template string) error {
-	d.Template = template
-	d.TemplateID = ""
+func (d *Driver) setTemplate(templateName string, templateID string) error {
+	d.Template = templateName
+	d.TemplateID = templateID
 
-	if d.Template == "" {
+	if d.Template == "" && d.TemplateID == "" {
 		return nil
 	}
 
 	if d.ZoneID == "" {
-		return fmt.Errorf("Unable to get template id: zone is not set")
+		return fmt.Errorf("Unable to get template: zone is not set")
 	}
 
 	cs := d.getClient()
-	templateid, err := cs.Template.GetTemplateID(d.Template, "executable", d.ZoneID)
+	var template *cloudstack.Template
+	var err error
+	if d.TemplateID != "" {
+		template, _, err = cs.Template.GetTemplateByID(d.TemplateID, "executable", d.setParams)
+	} else {
+		template, _, err = cs.Template.GetTemplateByName(d.Template, "executable", d.ZoneID, d.setParams)
+	}
 	if err != nil {
-		return fmt.Errorf("Unable to get template id: %v", err)
+		return fmt.Errorf("Unable to get template: %v", err)
 	}
 
-	d.TemplateID = templateid
+	d.TemplateID = template.Id
+	d.Template = template.Name
+
 	log.Debugf("template id: %q", d.TemplateID)
+	log.Debugf("template name: %q", d.Template)
 
 	return nil
 }
 
-func (d *Driver) setServiceOffering(serviceoffering string) error {
+func (d *Driver) setServiceOffering(serviceoffering string, serviceofferingID string) error {
 	d.ServiceOffering = serviceoffering
-	d.ServiceOfferingID = ""
+	d.ServiceOfferingID = serviceofferingID
 
-	if d.ServiceOffering == "" {
+	if d.ServiceOffering == "" && d.ServiceOfferingID == "" {
 		return nil
 	}
 
 	cs := d.getClient()
-	serviceofferingid, err := cs.ServiceOffering.GetServiceOfferingID(d.ServiceOffering)
+	var service *cloudstack.ServiceOffering
+	var err error
+	if d.ServiceOfferingID != "" {
+		service, _, err = cs.ServiceOffering.GetServiceOfferingByID(d.ServiceOfferingID, d.setParams)
+	} else {
+		service, _, err = cs.ServiceOffering.GetServiceOfferingByName(d.ServiceOffering, d.setParams)
+	}
 	if err != nil {
-		return fmt.Errorf("Unable to get service offering id: %v", err)
+		return fmt.Errorf("Unable to get service offering: %v", err)
 	}
 
-	d.ServiceOfferingID = serviceofferingid
+	d.ServiceOfferingID = service.Id
+	d.ServiceOffering = service.Name
 
 	log.Debugf("service offering id: %q", d.ServiceOfferingID)
+	log.Debugf("service offering name: %q", d.ServiceOffering)
 
 	return nil
 }
 
-func (d *Driver) setNetwork(network string) error {
-	d.Network = network
-	d.NetworkID = ""
+func (d *Driver) setNetwork(networkName string, networkID string) error {
+	d.Network = networkName
+	d.NetworkID = networkID
 
-	if d.Network == "" {
+	if d.Network == "" && d.NetworkID == "" {
 		return nil
 	}
 
 	cs := d.getClient()
-	networkid, err := cs.Network.GetNetworkID(d.Network)
+	var network *cloudstack.Network
+	var err error
+	if d.NetworkID != "" {
+		network, _, err = cs.Network.GetNetworkByID(d.NetworkID, d.setParams)
+	} else {
+		network, _, err = cs.Network.GetNetworkByName(d.Network, d.setParams)
+	}
 	if err != nil {
-		return fmt.Errorf("Unable to get network id: %v", err)
+		return fmt.Errorf("Unable to get network: %v", err)
 	}
 
-	d.NetworkID = networkid
+	d.NetworkID = network.Id
+	d.Network = network.Name
 
 	log.Debugf("network id: %q", d.NetworkID)
+	log.Debugf("network name: %q", d.Network)
 
 	return nil
 }
@@ -621,6 +698,35 @@ func (d *Driver) setUserData(userDataFile string) error {
 	return nil
 }
 
+func (d *Driver) setProject(projectName string, projectID string) error {
+	d.Project = projectName
+	d.ProjectID = projectID
+
+	if d.Project == "" && d.ProjectID == "" {
+		return nil
+	}
+
+	cs := d.getClient()
+	var p *cloudstack.Project
+	var err error
+	if d.ProjectID != "" {
+		p, _, err = cs.Project.GetProjectByID(d.ProjectID)
+	} else {
+		p, _, err = cs.Project.GetProjectByName(d.Project)
+	}
+	if err != nil {
+		return fmt.Errorf("Invalid project: %s", err)
+	}
+
+	d.ProjectID = p.Id
+	d.Project = p.Name
+
+	log.Debugf("project id: %s", d.ProjectID)
+	log.Debugf("project name: %s", d.Project)
+
+	return nil
+}
+
 func (d *Driver) checkKeyPair() error {
 	cs := d.getClient()
 
@@ -628,6 +734,9 @@ func (d *Driver) checkKeyPair() error {
 
 	p := cs.SSH.NewListSSHKeyPairsParams()
 	p.SetName(d.SSHKeyPair)
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	res, err := cs.SSH.ListSSHKeyPairs(p)
 	if err != nil {
 		return err
@@ -646,6 +755,9 @@ func (d *Driver) checkInstance() error {
 	p := cs.VirtualMachine.NewListVirtualMachinesParams()
 	p.SetName(d.MachineName)
 	p.SetZoneid(d.ZoneID)
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	res, err := cs.VirtualMachine.ListVirtualMachines(p)
 	if err != nil {
 		return err
@@ -671,6 +783,9 @@ func (d *Driver) createKeyPair() error {
 	log.Infof("Registering SSH key pair...")
 
 	p := cs.SSH.NewRegisterSSHKeyPairParams(d.SSHKeyPair, string(publicKey))
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SSH.RegisterSSHKeyPair(p); err != nil {
 		return err
 	}
@@ -684,6 +799,9 @@ func (d *Driver) deleteKeyPair() error {
 	log.Infof("Deleting SSH key pair...")
 
 	p := cs.SSH.NewDeleteSSHKeyPairParams(d.SSHKeyPair)
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SSH.DeleteSSHKeyPair(p); err != nil {
 		return err
 	}
@@ -697,6 +815,9 @@ func (d *Driver) associatePublicIP() error {
 	p.SetZoneid(d.ZoneID)
 	if d.NetworkID != "" {
 		p.SetNetworkid(d.NetworkID)
+	}
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
 	}
 	ip, err := cs.Address.AssociateIpAddress(p)
 	if err != nil {
@@ -834,6 +955,9 @@ func (d *Driver) createSecurityGroup() error {
 	cs := d.getClient()
 
 	p1 := cs.SecurityGroup.NewCreateSecurityGroupParams(d.MachineName)
+	if d.ProjectID != "" {
+		p1.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SecurityGroup.CreateSecurityGroup(p1); err != nil {
 		return err
 	}
@@ -845,6 +969,9 @@ func (d *Driver) createSecurityGroup() error {
 
 	p2.SetStartport(22)
 	p2.SetEndport(22)
+	if d.ProjectID != "" {
+		p2.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SecurityGroup.AuthorizeSecurityGroupIngress(p2); err != nil {
 		return err
 	}
@@ -871,8 +998,38 @@ func (d *Driver) deleteSecurityGroup() error {
 
 	p := cs.SecurityGroup.NewDeleteSecurityGroupParams()
 	p.SetName(d.MachineName)
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
+	}
 	if _, err := cs.SecurityGroup.DeleteSecurityGroup(p); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (d *Driver) createTags() error {
+	log.Info("Creating resource tags ...")
+	cs := d.getClient()
+	tags := make(map[string]string)
+	for _, t := range d.Tags {
+		parts := strings.SplitN(t, ":", 2)
+		tags[parts[0]] = parts[1]
+	}
+	params := cs.Resourcetags.NewCreateTagsParams([]string{d.Id}, "UserVm", tags)
+	_, err := cs.Resourcetags.CreateTags(params)
+	return err
+}
+
+func (d *Driver) setParams(c *cloudstack.CloudStackClient, p interface{}) error {
+	if o, ok := p.(interface {
+		SetProjectid(string)
+	}); ok && d.ProjectID != "" {
+		o.SetProjectid(d.ProjectID)
+	}
+	if o, ok := p.(interface {
+		SetZoneid(string)
+	}); ok && d.ZoneID != "" {
+		o.SetZoneid(d.ZoneID)
 	}
 	return nil
 }
