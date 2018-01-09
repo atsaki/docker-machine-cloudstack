@@ -34,6 +34,7 @@ type Driver struct {
 	ApiURL               string
 	ApiKey               string
 	SecretKey            string
+	ProjectID            string
 	HTTPGETOnly          bool
 	JobTimeOut           int64
 	UsePrivateIP         bool
@@ -77,6 +78,10 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Name:   "cloudstack-secret-key",
 			Usage:  "CloudStack API secret key",
 			EnvVar: "CLOUDSTACK_SECRET_KEY",
+		},
+		mcnflag.StringFlag{
+			Name:  "cloudstack-project-id",
+			Usage: "CloudStack project ID",
 		},
 		mcnflag.BoolFlag{
 			Name:   "cloudstack-http-get-only",
@@ -170,6 +175,7 @@ func (d *Driver) GetSSHUsername() string {
 func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.ApiURL = flags.String("cloudstack-api-url")
 	d.ApiKey = flags.String("cloudstack-api-key")
+	d.ProjectID = flags.String("cloudstack-project-id")
 	d.SecretKey = flags.String("cloudstack-secret-key")
 	d.UsePrivateIP = flags.Bool("cloudstack-use-private-address")
 	d.UsePortForward = flags.Bool("cloudstack-use-port-forward")
@@ -333,6 +339,10 @@ func (d *Driver) Create() error {
 			return err
 		}
 		p.SetSecuritygroupnames([]string{d.MachineName})
+	}
+
+	if d.ProjectID != "" {
+		p.SetProjectid(d.ProjectID)
 	}
 
 	// Create the machine
