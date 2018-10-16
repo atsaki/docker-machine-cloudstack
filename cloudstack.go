@@ -345,6 +345,7 @@ func (d *Driver) Create() error {
 	d.Id = vm.Id
 
 	d.PrivateIP = vm.Nic[0].Ipaddress
+	d.IPAddress = vm.Nic[0].Ipaddress
 	if d.NetworkType == "Basic" {
 		d.PublicIP = d.PrivateIP
 	}
